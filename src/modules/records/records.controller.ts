@@ -55,7 +55,10 @@ export class RecordsController {
       return { version, attestation };
     });
     await this.jobs.add("record-ingest", { recordVersionId: result.version.id, correlationId }, idempotencyKey);
-    await this.jobs.add("stellar-submit", { operation: "attest", attestationId: result.attestation.id, correlationId }, `stellar-attest:${result.attestation.id}`);
+    // BullMQ v6 rejects a custom jobId containing ':' unless it splits into exactly 3 segments
+    // (reserved for its own repeatable-job id format), so this must not use `name:${id}` — see
+    // the identical fix applied to consent.controller.ts's stellar-grant/stellar-revoke keys.
+    await this.jobs.add("stellar-submit", { operation: "attest", attestationId: result.attestation.id, correlationId }, `stellar-attest-${result.attestation.id}`);
     return { recordId: record.id, recordVersionId: result.version.id, status: "QUEUED", sha256: result.version.sha256 };
   }
 

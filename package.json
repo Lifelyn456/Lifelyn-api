@@ -16,8 +16,8 @@
     }
   },
   "scripts": {
-    "dev": "tsx watch src/main.ts",
-    "dev:worker": "tsx watch src/worker.ts",
+    "dev": "tsc -p tsconfig.json && (tsc -p tsconfig.json --watch --preserveWatchOutput & node --watch dist/main.js)",
+    "dev:worker": "tsc -p tsconfig.json && (tsc -p tsconfig.json --watch --preserveWatchOutput & node --watch dist/worker.js)",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "start:worker": "node dist/worker.js",
@@ -26,7 +26,8 @@
     "lint": "eslint src test",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy"
+    "db:deploy": "prisma migrate deploy",
+    "smoke:e2e": "node scripts/e2e-smoke.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1000.0",
@@ -57,7 +58,6 @@
     "@types/pg": "^8.16.0",
     "eslint": "^9.39.3",
     "prisma": "7.10.0",
-    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.57.0",
     "vitest": "^4.0.18"

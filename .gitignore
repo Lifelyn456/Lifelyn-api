@@ -3,3 +3,4 @@ dist/
 .env
 coverage/
 src/generated/prisma/
+docker-compose.override.yml

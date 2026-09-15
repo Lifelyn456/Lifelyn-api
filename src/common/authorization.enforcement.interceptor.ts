@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from "@nestjs/common";
+import { CallHandler, ExecutionContext, Inject, Injectable, NestInterceptor } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { Observable, tap } from "rxjs";
 import { AppException } from "./errors.js";
@@ -15,7 +15,13 @@ import type { AuthedRequest } from "./auth-context.js";
  */
 @Injectable()
 export class AuthorizationEnforcementInterceptor implements NestInterceptor {
-  constructor(private readonly reflector: Reflector) {}
+  // Explicit @Inject(Reflector) rather than relying on implicit constructor-parameter-type
+  // metadata: esbuild-based dev runners (tsx, used by `pnpm dev`) do not emit
+  // `emitDecoratorMetadata`'s design:paramtypes for framework types, which silently left
+  // `this.reflector` undefined and crashed every request with a 500 as soon as it passed its
+  // guards. `tsc` (used by `pnpm build`/production) emits it correctly, which is why this only
+  // ever surfaced in local dev. The explicit token below works under both compilers.
+  constructor(@Inject(Reflector) private readonly reflector: Reflector) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     if (context.getType() !== "http") return next.handle();

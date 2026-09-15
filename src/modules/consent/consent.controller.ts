@@ -75,7 +75,10 @@ export class ConsentController {
       await tx.consentRequest.update({ where: { id: row.id }, data: { status: "APPROVED" } });
       return tx.consentGrant.create({ data: { patientId, recipientType: "PROVIDER", recipientId: row.requesterProviderId, scope, scopeManifestHash, startsAt, expiresAt, stellarRef, status: "PENDING_CHAIN" } });
     });
-    await this.jobs.add("stellar-submit", { operation: "grant", grantId: grant.id, correlationId: req.id }, `stellar-grant:${grant.id}`);
+    // BullMQ v6 rejects a custom jobId containing ':' unless it splits into exactly 3 segments
+    // (reserved for its own repeatable-job id format); `name:${id}` only produces 2, so it's
+    // rejected with "Custom Id cannot contain :". Use a hyphen instead everywhere in this file.
+    await this.jobs.add("stellar-submit", { operation: "grant", grantId: grant.id, correlationId: req.id }, `stellar-grant-${grant.id}`);
     return grant;
   }
 
@@ -105,7 +108,7 @@ export class ConsentController {
     const id = uuid.parse(rawId);
     const result = await this.database.client().consentGrant.updateMany({ where: { id, patientId, revokedAt: null }, data: { revokedAt: new Date(), status: "REVOKED" } });
     if (!result.count) throw new NotFoundException("Active consent was not found.");
-    await this.jobs.add("stellar-submit", { operation: "revoke", grantId: id, correlationId: req.id }, `stellar-revoke:${id}`);
+    await this.jobs.add("stellar-submit", { operation: "revoke", grantId: id, correlationId: req.id }, `stellar-revoke-${id}`);
     return { id, status: "REVOKED", futureAccessBlocked: true };
   }
 

@@ -23,6 +23,10 @@ export class SafeExceptionFilter implements ExceptionFilter {
     const response = http.getResponse<FastifyReply>();
     const request = http.getRequest<FastifyRequest>();
     const status = exception instanceof ZodError ? 400 : exception instanceof HttpException ? exception.getStatus() : 500;
+    // Unexpected (non-HttpException, non-Zod) failures are logged server-side so they are not
+    // completely invisible in production. This only ever logs the exception's own stack trace,
+    // never request bodies/headers/PHI, matching the "no PHI in logs" security requirement.
+    if (status === 500) console.error(`[requestId=${request.id}] Unhandled exception:`, exception);
     const payload =
       exception instanceof HttpException ? exception.getResponse() : undefined;
     const explicit =
