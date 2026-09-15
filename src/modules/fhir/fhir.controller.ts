@@ -7,6 +7,7 @@ import { AuthorizationService } from "../../common/authorization.service.js";
 import { DatabaseService } from "../../common/database.service.js";
 import { IdentityService } from "../../common/identity.service.js";
 import { validate_bundle } from "./fhir.mapper.js";
+import { RequiresAuthorization } from "../../common/authorization.decorators.js";
 
 const uuid = z.string().uuid();
 type Resource = Record<string, unknown>;
@@ -24,6 +25,7 @@ export class FhirController {
   constructor(private readonly database: DatabaseService, private readonly identities: IdentityService, private readonly authorization: AuthorizationService) {}
 
   @Post("me/fhir/import")
+  @RequiresAuthorization()
   @ApiOperation({ summary: "Persist a conservative FHIR R4 import with original versioned payload provenance" })
   async import(@Req() req: AuthedRequest, @Body() body: unknown) {
     const user = await this.identities.current(req);
@@ -63,6 +65,7 @@ export class FhirController {
   }
 
   @Get(":patientId/fhir/export")
+  @RequiresAuthorization()
   @ApiOperation({ summary: "Export authorized FHIR R4 resources as a collection bundle" })
   async export(@Req() req: AuthedRequest, @Param("patientId") raw: string) {
     const patientId = raw === "me" ? (await this.identities.current(req)).patient?.id : uuid.parse(raw);

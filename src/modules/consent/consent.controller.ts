@@ -7,6 +7,7 @@ import { AuthorizationService } from "../../common/authorization.service.js";
 import { DatabaseService } from "../../common/database.service.js";
 import { IdentityService } from "../../common/identity.service.js";
 import { JobsService } from "../jobs/jobs.service.js";
+import { RequiresAuthorization, SkipAuthorization } from "../../common/authorization.decorators.js";
 
 const uuid = z.string().uuid();
 const scopeSchema = z.object({ actions: z.array(z.enum(["read", "ask", "attest", "integrity-check"])).min(1).max(10), resourceClasses: z.array(z.string().min(1).max(80)).min(1).max(30), recordIds: z.array(z.string().uuid()).max(500).optional() }).strict();
@@ -27,6 +28,7 @@ export class ConsentController {
   constructor(private readonly database: DatabaseService, private readonly identities: IdentityService, private readonly jobs: JobsService, private readonly authorization: AuthorizationService) {}
 
   @Post(":patientId/access-requests")
+  @SkipAuthorization("This creates a REQUEST for future access, not a read of the patient's consent-gated resources; it checks verified-provider status and MFA inline and records its own AccessEvent, since no active ConsentGrant can exist yet for a request that hasn't been approved.")
   @ApiOperation({ summary: "Request explicit patient access as a verified clinician with MFA" })
   async request(@Req() req: AuthedRequest, @Param("patientId") patientIdRaw: string, @Body() body: unknown) {
     const patientId = uuid.parse(patientIdRaw);
@@ -45,6 +47,7 @@ export class ConsentController {
   }
 
   @Get("me/access-requests")
+  @RequiresAuthorization()
   async listRequests(@Req() req: AuthedRequest) {
     const patientId = await this.owner(req);
     await this.authorization.assert(req, patientId, "manage", "consent", undefined, "access-request-list");
@@ -52,6 +55,7 @@ export class ConsentController {
   }
 
   @Post("me/access-requests/:id/approve")
+  @RequiresAuthorization()
   async approve(@Req() req: AuthedRequest, @Param("id") rawId: string, @Body() body: unknown) {
     const patientId = await this.owner(req);
     await this.authorization.assert(req, patientId, "manage", "consent", undefined, "access-request-approval");
@@ -76,6 +80,7 @@ export class ConsentController {
   }
 
   @Post("me/access-requests/:id/reject")
+  @RequiresAuthorization()
   async reject(@Req() req: AuthedRequest, @Param("id") rawId: string) {
     const patientId = await this.owner(req);
     await this.authorization.assert(req, patientId, "manage", "consent", undefined, "access-request-rejection");
@@ -85,6 +90,7 @@ export class ConsentController {
   }
 
   @Get("me/consents")
+  @RequiresAuthorization()
   async list(@Req() req: AuthedRequest) {
     const patientId = await this.owner(req);
     await this.authorization.assert(req, patientId, "manage", "consent", undefined, "consent-list");
@@ -92,6 +98,7 @@ export class ConsentController {
   }
 
   @Post("me/consents/:id/revoke")
+  @RequiresAuthorization()
   async revoke(@Req() req: AuthedRequest, @Param("id") rawId: string) {
     const patientId = await this.owner(req);
     await this.authorization.assert(req, patientId, "manage", "consent", undefined, "consent-revocation");

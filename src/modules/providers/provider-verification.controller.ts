@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { DatabaseService } from "../../common/database.service.js";
 import { JobsService } from "../jobs/jobs.service.js";
+import { Public } from "../../common/authorization.decorators.js";
 
 const bodySchema = z.object({ status: z.enum(["VERIFIED", "REJECTED"]), authorityReference: z.string().min(1).max(200) }).strict();
 
@@ -10,6 +11,7 @@ const bodySchema = z.object({ status: z.enum(["VERIFIED", "REJECTED"]), authorit
 export class ProviderVerificationController {
   constructor(private readonly database: DatabaseService, private readonly jobs: JobsService) {}
   @Patch(":providerId/verification")
+  @Public()
   async update(@Headers("authorization") auth: string, @Param("providerId") providerId: string, @Body() raw: unknown) {
     const expected = process.env.PROVIDER_VERIFIER_TOKEN;
     const received = auth?.startsWith("Bearer ") ? auth.slice(7) : "";

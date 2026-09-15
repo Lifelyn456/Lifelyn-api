@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { WalletJwtGuard, type AuthedRequest } from "../../common/auth-context.js";
 import { DatabaseService } from "../../common/database.service.js";
 import { IdentityService } from "../../common/identity.service.js";
+import { SkipAuthorization } from "../../common/authorization.decorators.js";
 
 @Controller("v1/patients/me/audit")
 @ApiBearerAuth()
@@ -10,6 +11,7 @@ import { IdentityService } from "../../common/identity.service.js";
 export class AuditController {
   constructor(private readonly database: DatabaseService, private readonly identities: IdentityService) {}
   @Get()
+  @SkipAuthorization("Route is hardcoded to /me and scopes the query to the caller's own patient.id; no other patient's audit trail is reachable through it.")
   @ApiOperation({ summary: "Read append-only access history for the authenticated patient" })
   async list(@Req() req: AuthedRequest) {
     const user = await this.identities.current(req);

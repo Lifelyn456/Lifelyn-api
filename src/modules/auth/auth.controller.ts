@@ -19,6 +19,7 @@ import { Redis } from "ioredis";
 import { SignJWT, jwtVerify } from "jose";
 import { z } from "zod";
 import { WalletAuth, type WalletChallenge } from "../../common/wallet-auth.js";
+import { Public, SkipAuthorization } from "../../common/authorization.decorators.js";
 const addressSchema = z.string().regex(/^G[A-Z2-7]{55}$/);
 const challengeBody = z.object({ address: addressSchema }).strict();
 const verifyBody = z
@@ -72,6 +73,7 @@ function config() {
 @Controller("v1/auth")
 export class AuthController {
   @Post("challenge")
+  @Public()
   @ApiOperation({ summary: "Create a single-use Freighter sign-in challenge" })
   @ApiBody({
     schema: {
@@ -107,6 +109,7 @@ export class AuthController {
     }
   }
   @Post("verify")
+  @Public()
   @ApiOperation({
     summary: "Verify a Freighter SEP-53 signature and consume the challenge",
   })
@@ -162,6 +165,7 @@ export class AuthController {
     }
   }
   @Get("me")
+  @SkipAuthorization("Validates the wallet JWT itself (no WalletJwtGuard) and only ever echoes the caller's own identity; no patient-consent resource is touched.")
   @ApiBearerAuth()
   @ApiOperation({
     summary: "Read verified wallet identity without granting clinical access",

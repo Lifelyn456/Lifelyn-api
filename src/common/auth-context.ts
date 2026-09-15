@@ -2,7 +2,7 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { jwtVerify } from "jose";
 
 export type RequestActor = { wallet: string; subject: string; capability: string; mfa: boolean };
-export type AuthedRequest = { headers: { authorization?: string }; id?: string; actor?: RequestActor };
+export type AuthedRequest = { headers: { authorization?: string }; id?: string; actor?: RequestActor; authorizationChecked?: boolean };
 
 @Injectable()
 export class WalletJwtGuard implements CanActivate {

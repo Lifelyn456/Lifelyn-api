@@ -20,6 +20,14 @@ const stellarConfirmQueue = new Queue("stellar-confirm", { connection });
 async function confirmLater(txHash: string, targetType: string, targetId: string) {
   await stellarConfirmQueue.add("stellar-confirm", { txHash, targetType, targetId }, { jobId: `stellar-confirm-${txHash}`, delay: 5_000, attempts: 12, backoff: { type: "exponential", delay: 5_000 }, removeOnComplete: 1_000, removeOnFail: false });
 }
+const cleanupQueue = new Queue("cleanup-expired-links", { connection });
+// Idempotent: upsertJobScheduler replaces any existing scheduler with this id rather than
+// duplicating it, so re-running this on every worker boot is safe.
+await cleanupQueue.upsertJobScheduler(
+  "cleanup-expired-links-schedule",
+  { every: 5 * 60_000 },
+  { name: "cleanup-expired-links", opts: { removeOnComplete: 100, removeOnFail: false } },
+);
 async function ingest(recordVersionId: string, correlationId: string, replaceCandidates = false) {
   const db = database.client();
   const version = await db.recordVersion.findUnique({ where: { id: recordVersionId }, include: { record: { include: { patient: true, sourceProvider: true } }, jobs: true } });
@@ -173,6 +181,7 @@ for (const worker of workers) worker.on("failed", async (job, error) => {
 async function shutdown() {
   await Promise.all(workers.map((worker) => worker.close()));
   await stellarConfirmQueue.close();
+  await cleanupQueue.close();
   await connection.quit();
   await database.onModuleDestroy();
 }

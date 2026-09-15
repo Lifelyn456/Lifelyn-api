@@ -6,6 +6,9 @@ import { SignJWT } from "jose";
 import { WalletJwtGuard, type AuthedRequest } from "../../common/auth-context.js";
 import { DatabaseService } from "../../common/database.service.js";
 import { IdentityService } from "../../common/identity.service.js";
+import { SkipAuthorization } from "../../common/authorization.decorators.js";
+
+const SELF_ONLY = "Operates only on the authenticated user's own passkey credentials; no other patient's or provider's resource is touched.";
 
 type Ceremony = { challenge: string; kind: "register" | "authenticate" };
 
@@ -17,6 +20,7 @@ export class MfaController {
   constructor(private readonly database: DatabaseService, private readonly identities: IdentityService) {}
 
   @Post("register/options")
+  @SkipAuthorization(SELF_ONLY)
   @ApiOperation({ summary: "Create provider passkey-enrollment options after Freighter login" })
   async registerOptions(@Req() req: AuthedRequest) {
     const user = await this.identities.current(req);
@@ -28,6 +32,7 @@ export class MfaController {
   }
 
   @Post("register/verify")
+  @SkipAuthorization(SELF_ONLY)
   async registerVerify(@Req() req: AuthedRequest, @Body() body: RegistrationResponseJSON) {
     const user = await this.identities.current(req);
     if (!user.provider) throw new BadRequestException("A provider profile is required.");
@@ -43,6 +48,7 @@ export class MfaController {
   }
 
   @Post("authenticate/options")
+  @SkipAuthorization(SELF_ONLY)
   async authenticationOptions(@Req() req: AuthedRequest) {
     const user = await this.identities.current(req);
     const passkeys = await this.database.client().passkeyCredential.findMany({ where: { userId: user.id } });
@@ -53,6 +59,7 @@ export class MfaController {
   }
 
   @Post("authenticate/verify")
+  @SkipAuthorization(SELF_ONLY)
   async authenticationVerify(@Req() req: AuthedRequest, @Body() body: AuthenticationResponseJSON) {
     const user = await this.identities.current(req);
     const ceremony = await this.take(user.id, "authenticate");

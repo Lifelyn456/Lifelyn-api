@@ -8,6 +8,7 @@ import { DatabaseService } from "../../common/database.service.js";
 import { IdentityService } from "../../common/identity.service.js";
 import { JobsService } from "../jobs/jobs.service.js";
 import { ObjectStorageService } from "./object-storage.service.js";
+import { RequiresAuthorization } from "../../common/authorization.decorators.js";
 
 const id = z.string().uuid();
 const uploadSchema = z.object({ filename: z.string().trim().min(1).max(255), mimeType: z.enum(["application/pdf", "image/png", "image/jpeg"]), sizeBytes: z.number().int().positive().max(25 * 1024 * 1024), recordType: z.string().trim().min(1).max(80).default("OTHER"), sourceType: z.enum(["UPLOAD", "PATIENT_ENTERED"]).default("UPLOAD") }).strict();
@@ -20,6 +21,7 @@ export class RecordsController {
   constructor(private readonly storage: ObjectStorageService, private readonly database: DatabaseService, private readonly identities: IdentityService, private readonly authorization: AuthorizationService, private readonly jobs: JobsService) {}
 
   @Post("me/records/upload-url")
+  @RequiresAuthorization()
   @ApiOperation({ summary: "Create a five-minute URL for a private staging upload" })
   async uploadUrl(@Req() req: AuthedRequest, @Body() body: unknown) {
     const input = uploadSchema.parse(body);
@@ -33,6 +35,7 @@ export class RecordsController {
   }
 
   @Post("me/records/finalize")
+  @RequiresAuthorization()
   @ApiOperation({ summary: "Scan, envelope-encrypt, hash, persist, and queue an uploaded original" })
   async finalize(@Req() req: AuthedRequest, @Body() body: unknown) {
     const input = finalizeSchema.parse(body);
@@ -57,6 +60,7 @@ export class RecordsController {
   }
 
   @Get(":patientId/records")
+  @RequiresAuthorization()
   async list(@Req() req: AuthedRequest, @Param("patientId") rawPatientId: string) {
     const patientId = await this.patientId(req, rawPatientId);
     await this.authorization.assert(req, patientId, "read", "records", undefined, "record-list");
@@ -64,6 +68,7 @@ export class RecordsController {
   }
 
   @Get(":patientId/records/:recordId")
+  @RequiresAuthorization()
   async detail(@Req() req: AuthedRequest, @Param("patientId") rawPatientId: string, @Param("recordId") rawRecordId: string) {
     const patientId = await this.patientId(req, rawPatientId);
     const recordId = id.parse(rawRecordId);
@@ -74,6 +79,7 @@ export class RecordsController {
   }
 
   @Get(":patientId/records/:recordId/source")
+  @RequiresAuthorization()
   async source(@Req() req: AuthedRequest, @Param("patientId") rawPatientId: string, @Param("recordId") rawRecordId: string) {
     const patientId = await this.patientId(req, rawPatientId);
     const recordId = id.parse(rawRecordId);
@@ -86,6 +92,7 @@ export class RecordsController {
   }
 
   @Post(":patientId/records/:recordId/integrity-check")
+  @RequiresAuthorization()
   async integrity(@Req() req: AuthedRequest, @Param("patientId") rawPatientId: string, @Param("recordId") rawRecordId: string) {
     const patientId = await this.patientId(req, rawPatientId);
     const recordId = id.parse(rawRecordId);
@@ -93,10 +100,14 @@ export class RecordsController {
     const record = await this.database.client().medicalRecord.findFirst({ where: { id: recordId, patientId }, include: { versions: { orderBy: { versionNo: "desc" }, take: 1 } } });
     const version = record?.versions[0];
     if (!record?.objectKey || !version) throw new NotFoundException("Record was not found.");
-    return this.storage.integrityCheck(record.objectKey, { iv: Buffer.from(version.encryptionIv), tag: Buffer.from(version.encryptionTag), wrappedKey: Buffer.from(version.encryptionWrappedKey), keyRef: version.encryptionKeyRef, sha256: version.sha256 });
+    const correlationId = req.id ?? randomUUID();
+    const idempotencyKey = `integrity-check:${version.id}:${Date.now()}`;
+    await this.jobs.add("integrity-check", { recordVersionId: version.id, correlationId }, idempotencyKey);
+    return { status: "QUEUED", idempotencyKey };
   }
 
   @Post(":patientId/records/:recordId/reprocess")
+  @RequiresAuthorization()
   async reprocess(@Req() req: AuthedRequest, @Param("patientId") rawPatientId: string, @Param("recordId") rawRecordId: string) {
     const patientId = await this.patientId(req, rawPatientId);
     const recordId = id.parse(rawRecordId);

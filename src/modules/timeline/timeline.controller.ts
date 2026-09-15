@@ -5,6 +5,7 @@ import { WalletJwtGuard, type AuthedRequest } from "../../common/auth-context.js
 import { AuthorizationService } from "../../common/authorization.service.js";
 import { DatabaseService } from "../../common/database.service.js";
 import { IdentityService } from "../../common/identity.service.js";
+import { RequiresAuthorization } from "../../common/authorization.decorators.js";
 
 const uuid = z.string().uuid();
 const correctionSchema = z.object({ reason: z.string().trim().min(1).max(500), fields: z.record(z.string(), z.union([z.string().max(500), z.number(), z.boolean(), z.null()])), reviewStatus: z.enum(["ACCEPTED", "CORRECTED", "REJECTED"]) }).strict();
@@ -16,6 +17,7 @@ export class TimelineController {
   constructor(private readonly database: DatabaseService, private readonly identities: IdentityService, private readonly authorization: AuthorizationService) {}
 
   @Get(":patientId/timeline")
+  @RequiresAuthorization()
   @ApiOperation({ summary: "Read authorized structured events with immutable provenance references" })
   async timeline(@Req() req: AuthedRequest, @Param("patientId") raw: string) {
     const patientId = await this.resolve(req, raw);
@@ -26,6 +28,7 @@ export class TimelineController {
   }
 
   @Get(":patientId/observations/trends")
+  @RequiresAuthorization()
   async trends(@Req() req: AuthedRequest, @Param("patientId") raw: string) {
     const patientId = await this.resolve(req, raw);
     await this.authorization.assert(req, patientId, "read", "observations", undefined, "observation-trends");
@@ -36,6 +39,7 @@ export class TimelineController {
   }
 
   @Patch("me/events/:eventId")
+  @RequiresAuthorization()
   @ApiOperation({ summary: "Attach patient correction metadata without mutating original extraction evidence" })
   async correct(@Req() req: AuthedRequest, @Param("eventId") rawId: string, @Body() body: unknown) {
     const user = await this.identities.current(req);

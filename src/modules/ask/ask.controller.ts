@@ -8,6 +8,7 @@ import { DatabaseService } from "../../common/database.service.js";
 import { FieldCryptoService } from "../../common/field-crypto.service.js";
 import { IdentityService } from "../../common/identity.service.js";
 import { AiClient } from "../../integrations/ai-client.js";
+import { RequiresAuthorization } from "../../common/authorization.decorators.js";
 
 const uuid = z.string().uuid();
 const conversationSchema = z.object({ purpose: z.string().trim().min(1).max(300) }).strict();
@@ -22,6 +23,7 @@ export class AskController {
   constructor(private readonly database: DatabaseService, private readonly identities: IdentityService, private readonly authorization: AuthorizationService, private readonly fields: FieldCryptoService, private readonly ai: AiClient) {}
 
   @Post()
+  @RequiresAuthorization()
   @ApiOperation({ summary: "Create an authorized patient-history conversation" })
   async create(@Req() req: AuthedRequest, @Param("patientId") raw: string, @Body() body: unknown) {
     const patientId = await this.resolve(req, raw);
@@ -31,6 +33,7 @@ export class AskController {
   }
 
   @Post(":conversationId/messages")
+  @RequiresAuthorization()
   @ApiOperation({ summary: "Ask only against authorized, cited patient evidence" })
   async message(@Req() req: AuthedRequest, @Param("patientId") raw: string, @Param("conversationId") conversationRaw: string, @Body() body: unknown) {
     const patientId = await this.resolve(req, raw);
@@ -99,6 +102,7 @@ export class AskController {
   }
 
   @Get(":conversationId/messages")
+  @RequiresAuthorization()
   async messages(@Req() req: AuthedRequest, @Param("patientId") raw: string, @Param("conversationId") conversationRaw: string) {
     const patientId = await this.resolve(req, raw);
     const access = await this.authorization.assert(req, patientId, "ask", "history", undefined, "conversation-history");

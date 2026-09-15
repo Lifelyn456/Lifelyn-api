@@ -43,6 +43,7 @@ export class AuthorizationService {
       purpose,
       requestId: req.id ?? crypto.randomUUID(),
     } });
+    req.authorizationChecked = true;
     return { user, patient, decision, grants: decision.grant ? [decision.grant] : [] };
   }
 }
