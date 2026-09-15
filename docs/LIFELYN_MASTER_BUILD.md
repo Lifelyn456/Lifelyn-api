@@ -1,0 +1,908 @@
+# LIFELYN — MASTER BUILD FILE
+
+**Status:** Authoritative build source of truth  
+**Product:** Lifelyn  
+**Tagline:** Your health, remembered.  
+**Repositories:** exactly 4  
+**Purpose of this file:** An AI coding agent should be able to scaffold, implement, test, integrate, and deploy Lifelyn without needing another architecture document.
+
+---
+
+## 1. Product definition
+
+Lifelyn is a **patient-owned lifelong medical memory**. It collects a person's health records from uploads and approved integrations, converts them into a structured longitudinal medical timeline, and lets the patient or an authorized healthcare professional ask questions about that history.
+
+The core product is not "ChatGPT for medicine." The core product is **one continuous health memory belonging to the patient**, with evidence-backed AI retrieval and patient-controlled access.
+
+Typical question:
+
+> Has this patient ever had an abnormal kidney result?
+
+The answer must summarize only what is present in the patient's records, show dates, distinguish conflicting evidence, and cite the exact source records.
+
+### Lifelyn is not
+
+- an autonomous doctor;
+- a diagnostic engine;
+- a prescription engine;
+- a replacement for clinicians;
+- a public blockchain medical-record database;
+- an AI that invents missing history.
+
+## 2. Product invariants
+
+These rules are never optional:
+
+1. Raw medical records remain encrypted off-chain.
+2. Every material AI claim about the patient's history must be traceable to source evidence.
+3. A clinician without an active authorization cannot query or view protected patient data.
+4. Revocation blocks future application-layer access immediately.
+5. Original uploaded records are immutable; corrections change structured interpretations, never the original evidence.
+6. Patient-entered history is visibly marked as self-reported.
+7. AI may summarize and compare records but must not independently diagnose or prescribe.
+8. Stellar stores only minimal trust state: opaque references, hashes, consent/attestation state, and receipts.
+9. Test and demo environments use synthetic/de-identified data only.
+10. Access to sensitive data is auditable.
+
+## 3. MVP user journeys
+
+### Patient journey
+1. Register and enable MFA/passkey-capable login.
+2. Create patient profile.
+3. Upload a medical PDF/image.
+4. API stores encrypted original and queues ingestion.
+5. AI extracts structured events and citations.
+6. Patient reviews/corrects extracted fields.
+7. Timeline updates.
+8. Patient receives a clinician access request.
+9. Patient grants scoped/time-limited access.
+10. Clinician asks a question.
+11. AI returns a cited answer.
+12. Patient revokes access and sees it in audit history.
+
+### Clinician journey
+1. Register as clinician.
+2. Complete provider verification status workflow.
+3. Request access to a specific patient with requested scope and expiry.
+4. After patient approval, view allowed timeline.
+5. Ask patient-history questions.
+6. Open every cited source record permitted by scope.
+7. Add a verified record/attestation if authorized.
+8. Lose access automatically on expiry/revocation.
+
+## 4. Exactly four repositories
+
+```text
+lifelyn/
+  lifelyn-web/
+  lifelyn-api/
+  lifelyn-ai/
+  lifelyn-contracts/
+```
+
+| Repo | Owns | Must not own |
+|---|---|---|
+| `lifelyn-web` | Patient/clinician UX, local UI state, generated API client | DB access, AI keys, object-store keys, Stellar signer secrets |
+| `lifelyn-api` | Auth, authorization, DB, encrypted record metadata, consent enforcement, FHIR, jobs, audit, orchestration | Medical reasoning/model implementation |
+| `lifelyn-ai` | Parsing, extraction, normalization, retrieval, temporal reasoning, citation validation | User authorization, canonical patient DB, blockchain signing |
+| `lifelyn-contracts` | Soroban consent/attestation/integrity contracts and generated bindings | Medical documents or readable medical details |
+
+## 5. Frozen technology baseline
+
+This file freezes architecture so the coding agent does not keep redesigning the product.
+
+| Area | Decision |
+|---|---|
+| Node runtime | Node.js 24 LTS |
+| JS package manager | pnpm 10.x, one lockfile per JS/TS repo |
+| Web | Next.js 16.3.x, React 19.3.x, TypeScript, App Router, Tailwind CSS |
+| API | NestJS 12.x, TypeScript, Fastify adapter, Prisma 7.10.x stable |
+| Database | PostgreSQL 18.x |
+| Cache / jobs | Redis + BullMQ 6.x |
+| AI runtime | Python 3.14.x, uv, FastAPI 0.141.x, Pydantic |
+| Search / vectors | PostgreSQL full-text + pgvector first; no separate vector DB until scale requires it |
+| Object storage | S3-compatible object storage; MinIO locally |
+| Stellar JS | @stellar/stellar-sdk 17.x |
+| Smart contracts | Rust stable + current Soroban SDK compatible with the deployed Stellar protocol |
+| Contract tooling | Stellar CLI 27.x or current compatible stable release |
+| API specification | OpenAPI 3.1 generated by API/AI services |
+| Web data fetching | TanStack Query |
+| Validation | Zod 4.x in TypeScript; Pydantic in Python |
+| Testing | Vitest/Jest as appropriate, Playwright for web E2E, Pytest for AI, Rust unit/property tests for contracts |
+| Observability | OpenTelemetry-compatible tracing, structured JSON logs, request/job correlation IDs |
+| Default deployment | Web on Vercel; API and AI as containers on Render or equivalent; managed PostgreSQL/Redis/object storage |
+| Blockchain environments | Local Stellar network -> Testnet -> Mainnet only after audit/review |
+
+### Version rule
+
+Patch releases may move forward for security fixes. Major-version changes require an explicit migration PR. Never use release candidates/betas in production unless this master file is intentionally revised. Commit lockfiles. Record the tested versions of the other three repositories in every release.
+
+
+## 6. Repository scaffolding
+
+### 6.1 `lifelyn-web`
+
+Create:
+
+```bash
+pnpm create next-app@16.3.4 lifelyn-web --ts --tailwind --eslint --app --src-dir --import-alias "@/*"
+cd lifelyn-web
+pnpm add @tanstack/react-query zod react-hook-form @hookform/resolvers date-fns
+pnpm add -D playwright @playwright/test
+```
+
+Required structure:
+
+```text
+src/
+  app/
+    (public)/
+      page.tsx
+      login/
+      register/
+    (patient)/
+      dashboard/
+      timeline/
+      records/
+      records/[recordId]/
+      access/
+      access/[grantId]/
+      audit/
+      settings/
+    (clinician)/
+      clinician/
+      clinician/patients/
+      clinician/patients/[patientId]/
+      clinician/patients/[patientId]/ask/
+      clinician/patients/[patientId]/timeline/
+  components/
+    timeline/
+    records/
+    consent/
+    chat/
+    audit/
+    ui/
+  lib/
+    api/
+      generated/
+      client.ts
+    auth/
+    permissions/
+    query-client.ts
+  hooks/
+  types/
+  tests/
+    e2e/
+```
+
+Rules:
+- use Server Components for static/safe server-rendered shells;
+- use client components only where interaction requires them;
+- all mutations go through `lifelyn-api`;
+- no medical record payload is cached in browser persistence by default;
+- disable analytics/session replay on protected clinical screens unless explicitly privacy-reviewed;
+- generated OpenAPI types are committed or deterministically generated in CI.
+
+### 6.2 `lifelyn-api`
+
+Create:
+
+```bash
+pnpm dlx @nestjs/cli@12 new lifelyn-api --package-manager pnpm --strict
+cd lifelyn-api
+pnpm add @nestjs/platform-fastify @nestjs/swagger @prisma/client zod bullmq ioredis   @aws-sdk/client-s3 @aws-sdk/s3-request-presigner @stellar/stellar-sdk
+pnpm add -D prisma@7.10.0
+```
+
+Structure:
+
+```text
+src/
+  main.ts
+  config/
+  common/
+    auth/
+    guards/
+    interceptors/
+    errors/
+    crypto/
+    idempotency/
+  modules/
+    auth/
+    users/
+    patients/
+    providers/
+    organizations/
+    records/
+    timeline/
+    consent/
+    access/
+    ask/
+    fhir/
+    audit/
+    jobs/
+    stellar/
+    health/
+  integrations/
+    ai/
+    object-storage/
+    stellar/
+  generated/
+    ai-client/
+    stellar-bindings/
+prisma/
+  schema.prisma
+  migrations/
+test/
+  integration/
+  e2e/
+docker-compose.dev.yml
+```
+
+`docker-compose.dev.yml` owns local PostgreSQL, Redis, and MinIO only. It does not attempt to own the other repositories.
+
+### 6.3 `lifelyn-ai`
+
+Create:
+
+```bash
+uv init --python 3.14 lifelyn-ai
+cd lifelyn-ai
+uv add "fastapi[standard]==0.141.1" pydantic sqlalchemy asyncpg httpx   pypdf python-multipart pgvector tenacity structlog
+uv add --dev pytest pytest-asyncio ruff mypy
+```
+
+Structure:
+
+```text
+src/lifelyn_ai/
+  main.py
+  config.py
+  api/
+    internal.py
+  schemas/
+  ingestion/
+    parser.py
+    classifier.py
+    extractor.py
+    normalizer.py
+    citations.py
+    validators.py
+  retrieval/
+    indexer.py
+    hybrid_search.py
+    filters.py
+  reasoning/
+    timeline.py
+    trends.py
+    conflicts.py
+  answering/
+    prompts.py
+    generator.py
+    citation_verifier.py
+    safety.py
+  providers/
+    llm.py
+    embeddings.py
+    vision.py
+  evals/
+    datasets/
+    metrics.py
+tests/
+```
+
+AI provider code must sit behind interfaces. No route handler may directly call a vendor SDK.
+
+### 6.4 `lifelyn-contracts`
+
+One Rust workspace, multiple Soroban contracts:
+
+```text
+lifelyn-contracts/
+  Cargo.toml
+  contracts/
+    consent_registry/
+    provider_registry/
+    record_attestation_registry/
+    access_receipt_registry/
+  scripts/
+  bindings/
+  tests/
+```
+
+Each contract is a separate crate in one Cargo workspace. Generate TypeScript bindings after successful build/deploy and make them consumable by `lifelyn-api`.
+
+## Repository interaction rules
+
+1. `*-web` talks only to `*-api` for authoritative product operations.
+2. `*-web` never receives database, object-storage, AI-provider, Redis, or Stellar signing secrets.
+3. `*-api` is the system-of-record and authorization boundary.
+4. `*-ai` never decides whether a user is allowed to see data. It accepts only already-authorized jobs from the API.
+5. `*-contracts` never stores the product's private domain data. Only opaque identifiers, hashes, permissions/attestations, and minimal public state go on-chain.
+6. Cross-repo contracts are versioned. Breaking a request/response schema without updating consumers is a failed change.
+7. All asynchronous work is idempotent. Every job receives an idempotency key.
+8. The API owns database migrations. The AI repo owns AI-index/evaluation migrations. The contracts repo owns contract upgrades.
+9. All development/demo fixtures use synthetic data.
+10. No contributor needs production secrets or real private data to complete a Wave issue.
+
+
+## 7. Data model — API database
+
+Use UUIDv7/UUID primary keys unless Prisma support requires UUIDv4. Every table has `created_at`; mutable tables also have `updated_at`.
+
+### Identity and organizations
+- `User(id, email, auth_subject, status, mfa_state)`
+- `PatientProfile(id, user_id, display_name, birth_date_encrypted, emergency_mode_enabled)`
+- `ProviderProfile(id, user_id, provider_type, verification_status, verified_at)`
+- `Organization(id, name, type, verification_status)`
+- `OrganizationMembership(id, organization_id, provider_id, role, status)`
+
+### Records and versions
+- `MedicalRecord(id, patient_id, record_type, source_type, source_provider_id?, original_filename, mime_type, object_key, status)`
+- `RecordVersion(id, record_id, version_no, sha256, size_bytes, object_version_id, encryption_key_ref, immutable=true)`
+- `RecordAttestation(id, record_version_id, issuer_provider_id?, issuer_org_id?, attestation_type, stellar_tx_hash?, status)`
+
+### Normalized clinical memory
+- `MedicalEvent(id, patient_id, event_type, occurred_at, end_at?, certainty, source_kind, self_reported)`
+- `Condition(id, patient_id, code_system?, code?, display, onset_at?, resolved_at?)`
+- `MedicationStatement(id, patient_id, medication_name, dose?, route?, frequency?, start_at?, end_at?, status)`
+- `Allergy(id, patient_id, substance, reaction?, severity?, status)`
+- `Observation(id, patient_id, name, value_numeric?, value_text?, unit?, ref_low?, ref_high?, observed_at)`
+- `Encounter(id, patient_id, provider_id?, organization_id?, encounter_type, started_at, ended_at?)`
+- `Procedure(id, patient_id, name, performed_at?)`
+- `Immunization(id, patient_id, vaccine_name, administered_at?)`
+- `SourceCitation(id, entity_type, entity_id, record_version_id, page?, section?, char_start?, char_end?, extracted_text_hash)`
+
+### Consent and audit
+- `ConsentRequest(id, patient_id, requester_provider_id, requested_scope_json, expires_at, status)`
+- `ConsentGrant(id, patient_id, recipient_type, recipient_id, scope_manifest_hash, starts_at, expires_at, revoked_at?, stellar_ref?, status)`
+- `AccessEvent(id, patient_id, actor_user_id, action, resource_type, resource_id?, purpose?, request_id, occurred_at)`
+
+### AI
+- `AiConversation(id, patient_id, actor_user_id, purpose, consent_grant_id?)`
+- `AiMessage(id, conversation_id, role, text_redacted?, created_at)`
+- `AiClaim(id, message_id, claim_text, support_status)`
+- `AiCitation(id, claim_id, record_version_id, page?, span_ref, relevance_score)`
+- `IngestionJob(id, record_version_id, status, attempt, idempotency_key, error_code?)`
+
+### FHIR
+- `FhirConnection(id, patient_id, organization_id, status, encrypted_credentials_ref)`
+- `FhirResourceMap(id, internal_type, internal_id, fhir_resource_type, fhir_id, version_id?)`
+
+## 8. Record encryption and storage
+
+- Originals go to a private bucket.
+- Use envelope encryption: a per-record data key encrypts content; the data key is protected by KMS/secret-management infrastructure.
+- DB stores only object key, version identifier, hash, metadata, and encrypted key reference.
+- Signed download URLs are short-lived and only issued after authorization.
+- AI receives a short-lived signed URL or streamed payload for a specific job.
+- Never log URLs containing signatures.
+- Recompute SHA-256 on ingest completion and on integrity verification.
+- A corrected extraction does not create a new original record version unless the source file itself changed.
+
+## 9. Authentication, authorization, and roles
+
+Roles:
+- `PATIENT`
+- `CLINICIAN`
+- `ORG_ADMIN`
+- `SUPPORT_ADMIN` with no default clinical-content access
+- `SYSTEM_WORKER`
+
+Authorization order for protected patient resources:
+1. authenticate actor;
+2. resolve patient/resource;
+3. if actor is patient owner -> allow permitted owner action;
+4. otherwise require verified provider status;
+5. require active `ConsentGrant`;
+6. ensure requested action and resource class are inside scope;
+7. ensure current time is inside grant window;
+8. append `AccessEvent`;
+9. only then fetch/decrypt data.
+
+Support staff cannot bypass consent through ordinary UI.
+
+## 10. Public API contract (`lifelyn-api`)
+
+Prefix all endpoints `/v1`.
+
+### Auth/profile
+- `GET /me`
+- `PATCH /me`
+- `GET /patients/me`
+- `PATCH /patients/me`
+- `GET /providers/me`
+- `POST /providers/me/verification`
+
+### Records
+- `POST /patients/me/records/upload-url`
+- `POST /patients/me/records/finalize`
+- `GET /patients/:patientId/records`
+- `GET /patients/:patientId/records/:recordId`
+- `POST /patients/:patientId/records/:recordId/integrity-check`
+- `POST /patients/:patientId/records/:recordId/reprocess`
+
+### Timeline/memory
+- `GET /patients/:patientId/timeline`
+- `GET /patients/:patientId/observations/trends`
+- `PATCH /patients/me/events/:eventId` for patient correction metadata
+- corrections must preserve original extraction/provenance
+
+### Ask
+- `POST /patients/:patientId/conversations`
+- `POST /patients/:patientId/conversations/:conversationId/messages`
+- `GET /patients/:patientId/conversations/:conversationId/messages`
+
+### Consent
+- `POST /patients/:patientId/access-requests`
+- `GET /patients/me/access-requests`
+- `POST /patients/me/access-requests/:id/approve`
+- `POST /patients/me/access-requests/:id/reject`
+- `GET /patients/me/consents`
+- `POST /patients/me/consents/:id/revoke`
+
+### Audit
+- `GET /patients/me/audit`
+
+### FHIR
+- `POST /patients/me/fhir/import`
+- `GET /patients/:patientId/fhir/export`
+
+All errors use:
+
+```json
+{
+  "error": {
+    "code": "CONSENT_REQUIRED",
+    "message": "Human-readable safe message",
+    "requestId": "..."
+  }
+}
+```
+
+## 11. Internal API between API and AI
+
+The AI service is private-network only. Authenticate calls with short-lived service JWT plus request signature.
+
+- `POST /internal/v1/ingest`
+- `POST /internal/v1/query`
+- `POST /internal/v1/reindex`
+- `POST /internal/v1/evaluate`
+- `GET /internal/v1/health`
+
+`/ingest` response shape:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "recordVersionId": "...",
+  "events": [],
+  "entities": [],
+  "citations": [],
+  "warnings": [],
+  "modelTrace": {
+    "provider": "...",
+    "model": "...",
+    "promptVersion": "..."
+  }
+}
+```
+
+The API validates this payload before persistence.
+
+## 12. AI ingestion pipeline
+
+For every new record:
+
+1. Validate MIME/type/size.
+2. Parse native text first.
+3. Use image/vision/OCR only when text extraction is insufficient.
+4. Classify document type.
+5. Split into stable source spans/pages.
+6. Extract medical entities/events with source span IDs.
+7. Normalize dates, units, medication strings, and terminology conservatively.
+8. Build candidate relationships.
+9. Validate that every extracted clinical fact has a source citation.
+10. Return structured JSON.
+11. API persists candidates as `PENDING_REVIEW` where confidence/risk requires confirmation.
+12. Index approved/accepted information for hybrid retrieval.
+
+Never infer a diagnosis not present in the source.
+
+## 13. AI query pipeline — “Ask Patient History”
+
+1. API verifies consent and produces an authorization filter.
+2. AI receives only authorized patient/resource scope.
+3. Classify the question as record-retrieval, trend/comparison, timeline, or unsupported clinical advice.
+4. Retrieve structured rows first where possible.
+5. Retrieve source passages for evidence.
+6. Generate atomic claims.
+7. Citation verifier checks each claim against evidence.
+8. Unsupported claims are removed.
+9. Safety layer prevents autonomous diagnosis/prescription language.
+10. Return answer + claim/citation objects.
+11. API stores audit metadata and sends answer to web.
+
+Required response fields:
+- concise answer;
+- evidence-backed details;
+- conflicts/uncertainty;
+- source citations;
+- `insufficientEvidence: true` when necessary.
+
+## 14. Lifelyn AI system policy
+
+The runtime system instruction must enforce:
+
+- Answer only from the provided patient evidence for patient-specific factual claims.
+- Do not fabricate missing history.
+- Clearly distinguish self-reported data from provider-issued data.
+- Never call correlation causation.
+- Never independently diagnose or prescribe.
+- For questions requesting diagnosis/treatment, summarize relevant recorded history and tell the clinician/patient that clinical judgement is required.
+- Every material historical claim requires a citation.
+- If sources conflict, present both and label the conflict.
+- If evidence is insufficient, say so.
+
+Prompt versions are stored in code and have immutable version identifiers.
+
+## 15. Stellar/Soroban specification
+
+### Privacy model
+
+Never put:
+- patient name;
+- DOB;
+- diagnosis;
+- medication;
+- lab values;
+- document URL;
+- readable consent category
+
+on-chain.
+
+Generate random opaque 32-byte references for patient/grant/record identities. Store the mapping only in the API DB.
+
+### `ConsentRegistry`
+State:
+- opaque grant ref
+- opaque subject ref
+- recipient Stellar address/opaque recipient ref
+- scope manifest hash
+- start ledger/time
+- expiry
+- revoked flag
+- grantor/authorized signer
+
+Methods:
+- `grant(grant_ref, subject_ref, recipient, scope_hash, starts_at, expires_at)`
+- `revoke(grant_ref)`
+- `is_active(grant_ref, now)`
+- `get(grant_ref)`
+
+Events:
+- `consent_granted`
+- `consent_revoked`
+
+### `ProviderRegistry`
+Methods:
+- `register(provider_ref, authority, metadata_hash)`
+- `set_status(provider_ref, status)`
+- `get_status(provider_ref)`
+
+No credential contents on-chain; only hash/attestation reference.
+
+### `RecordAttestationRegistry`
+Methods:
+- `attest(record_ref, content_hash, issuer_ref)`
+- `get(record_ref)`
+- optional new version creates a new record/version reference, never mutates the old hash
+
+### `AccessReceiptRegistry`
+Optional for MVP UI but implement contract/test:
+- `record_receipt(grant_ref, access_ref, purpose_hash, timestamp)`
+- do not write query text or resource category in plain form
+
+### Signing
+For local/testnet MVP, use dedicated test identities. Production must use a secure wallet/signing abstraction; never persist raw secret seeds in PostgreSQL.
+
+## 16. Background jobs
+
+Queues:
+- `record-ingest`
+- `record-reindex`
+- `integrity-check`
+- `stellar-submit`
+- `stellar-confirm`
+- `fhir-import`
+- `cleanup-expired-links`
+
+Job rules:
+- deterministic idempotency key;
+- exponential backoff;
+- bounded retry count;
+- terminal failure state;
+- dead-letter inspection;
+- correlation ID propagated API -> queue -> AI/Stellar.
+
+## 17. Web screens required for MVP
+
+Patient:
+- landing/login/register;
+- patient dashboard;
+- upload record;
+- record processing/review;
+- timeline;
+- record detail/source viewer;
+- access requests;
+- active grants;
+- audit history;
+- settings/security.
+
+Clinician:
+- clinician onboarding/verification;
+- patient access request;
+- patient summary;
+- patient timeline;
+- Ask Patient History;
+- cited record viewer.
+
+UI must make source citations one click away from AI answers.
+
+## 18. FHIR boundary
+
+Support FHIR R4-compatible import/export for the first version.
+
+Minimum mapped resources:
+- Patient
+- Practitioner
+- Organization
+- Encounter
+- Condition
+- AllergyIntolerance
+- MedicationRequest / MedicationStatement
+- Observation
+- Procedure
+- Immunization
+- DocumentReference
+
+Store original FHIR payload version metadata for provenance. Do not assume every uploaded record can be perfectly mapped.
+
+## 19. Security checklist
+
+Required before public deployment:
+- TLS only;
+- MFA for providers/admins;
+- CSP and secure cookies;
+- CSRF protection where cookie auth is used;
+- rate limits;
+- malware/file scanning hook before ingestion;
+- MIME/content validation;
+- upload size limits;
+- object bucket private by default;
+- KMS/secret manager;
+- DB encryption at rest;
+- separate dev/staging/prod credentials;
+- least-privilege IAM;
+- no PHI in logs/traces;
+- sensitive-field log redaction;
+- backup/restore test;
+- consent-bypass integration tests;
+- dependency/security scanning;
+- documented incident-response path.
+
+Do not claim legal compliance merely because these controls exist; compliance requires jurisdiction-specific review.
+
+## 20. Testing matrix
+
+### Web
+- role/route guards;
+- consent UI;
+- upload states;
+- citation navigation;
+- timeline filters;
+- expiry/revocation UX;
+- Playwright happy-path journey.
+
+### API
+- auth and RBAC;
+- consent scope/expiry/revocation;
+- signed URL authorization;
+- record integrity;
+- idempotency;
+- audit completeness;
+- FHIR mapping;
+- AI schema validation;
+- Stellar adapter failures.
+
+### AI
+Golden synthetic dataset must test:
+- extraction accuracy;
+- dates/units;
+- source span fidelity;
+- conflicting records;
+- no-evidence query;
+- unsupported diagnosis request;
+- citation entailment;
+- self-reported vs provider-sourced distinction.
+
+### Contracts
+- unauthorized grant/revoke rejected;
+- invalid expiry rejected;
+- revoked grant inactive;
+- hashes immutable per attested version;
+- provider status authorization;
+- emitted events correct.
+
+## 21. CI/CD
+
+Every repo:
+- lint;
+- format check;
+- tests;
+- dependency audit;
+- build.
+
+Additional:
+- web: Playwright smoke test on preview;
+- API: migration check + integration suite;
+- AI: golden eval threshold; block merge if grounding/citation regression exceeds threshold;
+- contracts: cargo test + local-network integration test + generated binding diff.
+
+Main branch is protected. PR required. No direct secret-bearing deployment files.
+
+## 22. Local development
+
+Clone all four side by side:
+
+```text
+lifelyn/
+  lifelyn-web
+  lifelyn-api
+  lifelyn-ai
+  lifelyn-contracts
+```
+
+Order:
+1. API: start `docker-compose.dev.yml` for PostgreSQL, Redis, MinIO.
+2. Contracts: start local Stellar network and deploy local contracts.
+3. API: run migrations, seed synthetic patient/provider accounts, set contract IDs.
+4. AI: start FastAPI.
+5. API: start NestJS.
+6. Web: start Next.js.
+7. Run the integration smoke test: upload synthetic record -> ingest -> timeline -> grant consent -> clinician ask -> citations -> revoke.
+
+## 23. Environment variables
+
+### Web
+- `NEXT_PUBLIC_API_BASE_URL`
+- auth-provider public configuration only
+
+### API
+- `DATABASE_URL`
+- `REDIS_URL`
+- `OBJECT_STORAGE_ENDPOINT`
+- `OBJECT_STORAGE_BUCKET`
+- `OBJECT_STORAGE_ACCESS_KEY`
+- `OBJECT_STORAGE_SECRET_KEY`
+- `KMS_KEY_REF`
+- `AI_BASE_URL`
+- `AI_SERVICE_JWT_SECRET` or asymmetric signing keys
+- `STELLAR_NETWORK`
+- `STELLAR_RPC_URL`
+- `STELLAR_CONSENT_CONTRACT_ID`
+- `STELLAR_PROVIDER_CONTRACT_ID`
+- `STELLAR_RECORD_ATTESTATION_CONTRACT_ID`
+- signer reference via secret manager, never source control
+
+### AI
+- `DATABASE_URL` only if AI owns a separate indexing schema; otherwise API-provided payloads
+- model provider keys
+- embedding provider keys
+- `SERVICE_JWT_PUBLIC_KEY`
+- `PROMPT_VERSION`
+
+### Contracts
+Deployment env only:
+- network/RPC;
+- deployer identity reference;
+- contract IDs output artifact.
+
+## 24. Deployment topology
+
+```text
+Browser
+  -> Vercel / lifelyn-web
+       -> HTTPS lifelyn-api
+            -> PostgreSQL
+            -> Redis/BullMQ
+            -> private object storage
+            -> private lifelyn-ai
+            -> Stellar RPC/contracts
+```
+
+AI and DB are not publicly exposed.
+
+Staging uses Stellar Testnet and synthetic data. Mainnet is not required for first Wave-ready demo.
+
+## 25. Milestone build plan
+
+### M0 — Foundation
+All repos scaffolded, CI green, local services documented.
+
+### M1 — Record vertical slice
+Patient auth -> upload -> encrypted storage -> ingestion job -> AI extraction -> timeline.
+
+### M2 — Evidence-backed chat
+Hybrid retrieval -> Ask Patient History -> atomic claims -> citations -> source viewer.
+
+### M3 — Consent
+Provider verification -> access request -> patient approval -> scoped middleware -> revoke/expiry.
+
+### M4 — Stellar
+ConsentRegistry + RecordAttestationRegistry local/testnet -> API integration -> tx confirmation jobs.
+
+### M5 — FHIR and audit
+FHIR import/export baseline, full audit history, integrity checks.
+
+### M6 — Hardening
+Threat model, evals, E2E, rate limiting, backups, observability, deployment.
+
+No milestone is complete until its tests pass.
+
+## 26. Wave issue boundaries
+
+Good external issues:
+- FHIR resource mapper for one resource type;
+- timeline filter component;
+- consent expiry UI;
+- citation source viewer;
+- document-type extractor;
+- observation-unit normalization;
+- AI citation validator;
+- contract event indexer;
+- Soroban property tests;
+- audit-log export;
+- synthetic fixture generator.
+
+Bad issues:
+- "build Lifelyn";
+- changes requiring private patient data;
+- vague AI improvements without an eval;
+- work crossing all four repos without clear interfaces.
+
+## 27. MVP definition of done
+
+Lifelyn MVP is done only when:
+
+- all four repos build independently;
+- synthetic patient uploads a record;
+- original is encrypted and hash-verified;
+- AI creates structured, cited medical events;
+- patient sees/corrects timeline;
+- verified clinician requests access;
+- patient grants scoped/time-limited access;
+- Stellar Testnet records minimal consent/integrity proof;
+- clinician can ask a history question and every factual claim is cited;
+- revocation immediately blocks subsequent clinician access;
+- access is auditable;
+- no raw medical content is written on-chain;
+- full synthetic E2E test passes from clean environment.
+
+## AI coding-agent execution rules
+
+The coding agent must treat this file as authoritative.
+
+- Do not redesign the product unless a requirement is technically impossible; if blocked, implement the closest safe behavior and document the deviation in the repo README.
+- Do not create extra repositories.
+- Do not replace a selected framework with another framework.
+- Do not hide incomplete work behind mock responses on production paths.
+- Mocks are allowed only in tests, Storybook/demo fixtures, or explicitly marked local-development adapters.
+- Keep public API schemas typed and versioned.
+- Every new endpoint requires validation, authorization, tests, error handling, and OpenAPI output.
+- Every new job requires idempotency, retry limits, dead-letter behavior, and observability.
+- Every AI output used by the product must include provenance/citations when the feature requires grounding.
+- Every Soroban contract method that changes state requires explicit authorization and tests for unauthorized calls.
+- Never put secrets in Git, screenshots, logs, fixtures, or client bundles.
+- Run lint, typecheck, unit tests, integration tests, and build before considering a milestone complete.
+- Work milestone by milestone. Do not jump ahead while foundational acceptance criteria are failing.

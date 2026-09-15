@@ -1,0 +1,460 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String              @id @default(uuid()) @db.Uuid
+  authSubject   String              @unique
+  email         String?             @unique
+  role          String              @default("PATIENT")
+  status        String              @default("ACTIVE")
+  mfaState      String              @default("NOT_REQUIRED")
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  patient       PatientProfile?
+  provider      ProviderProfile?
+  accessEvents  AccessEvent[]
+  conversations AiConversation[]
+  passkeys      PasskeyCredential[]
+}
+
+model PasskeyCredential {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  credentialId String   @unique
+  publicKey    Bytes
+  counter      BigInt   @default(0)
+  transports   String[]
+  deviceType   String
+  backedUp     Boolean
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PatientProfile {
+  id                   String                @id @default(uuid()) @db.Uuid
+  userId               String                @unique @db.Uuid
+  displayName          String
+  birthDateEncrypted   Bytes?
+  emergencyModeEnabled Boolean               @default(false)
+  stellarSubjectRef    String                @unique @db.Char(64)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  user                 User                  @relation(fields: [userId], references: [id])
+  records              MedicalRecord[]
+  events               MedicalEvent[]
+  conditions           Condition[]
+  medications          MedicationStatement[]
+  allergies            Allergy[]
+  observations         Observation[]
+  encounters           Encounter[]
+  procedures           Procedure[]
+  immunizations        Immunization[]
+  grants               ConsentGrant[]
+  requests             ConsentRequest[]
+  accessEvents         AccessEvent[]
+  conversations        AiConversation[]
+  fhirConnections      FhirConnection[]
+  fhirMaps             FhirResourceMap[]
+
+  @@index([createdAt])
+}
+
+model ProviderProfile {
+  id                       String                   @id @default(uuid()) @db.Uuid
+  userId                   String                   @unique @db.Uuid
+  displayName              String
+  providerType             String
+  verificationStatus       String                   @default("PENDING")
+  verifiedAt               DateTime?
+  stellarProviderRef       String?                  @unique @db.Char(64)
+  verificationMetadataHash String?                  @db.Char(64)
+  stellarTxHash            String?
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+  user                     User                     @relation(fields: [userId], references: [id])
+  memberships              OrganizationMembership[]
+  sourceRecords            MedicalRecord[]          @relation("SourceProvider")
+  attestations             RecordAttestation[]
+  accessRequests           ConsentRequest[]
+  encounters               Encounter[]
+
+  @@index([verificationStatus])
+}
+
+model Organization {
+  id                 String                   @id @default(uuid()) @db.Uuid
+  name               String
+  type               String
+  verificationStatus String                   @default("PENDING")
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  memberships        OrganizationMembership[]
+  attestations       RecordAttestation[]
+  encounters         Encounter[]
+  fhirConnections    FhirConnection[]
+}
+
+model OrganizationMembership {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @db.Uuid
+  providerId     String          @db.Uuid
+  role           String
+  status         String          @default("ACTIVE")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  provider       ProviderProfile @relation(fields: [providerId], references: [id])
+
+  @@unique([organizationId, providerId])
+}
+
+model MedicalRecord {
+  id                String           @id @default(uuid()) @db.Uuid
+  patientId         String           @db.Uuid
+  recordType        String
+  sourceType        String
+  sourceProviderId  String?          @db.Uuid
+  originalFilename  String
+  mimeType          String
+  declaredSizeBytes Int
+  stagingObjectKey  String?          @unique
+  objectKey         String?          @unique
+  status            String           @default("PENDING_UPLOAD")
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  patient           PatientProfile   @relation(fields: [patientId], references: [id])
+  sourceProvider    ProviderProfile? @relation("SourceProvider", fields: [sourceProviderId], references: [id])
+  versions          RecordVersion[]
+
+  @@index([patientId, createdAt])
+  @@index([status])
+}
+
+model RecordVersion {
+  id                   String              @id @default(uuid()) @db.Uuid
+  recordId             String              @db.Uuid
+  versionNo            Int
+  sha256               String              @db.Char(64)
+  sizeBytes            Int
+  objectVersionId      String?
+  encryptionKeyRef     String
+  encryptionWrappedKey Bytes
+  encryptionIv         Bytes
+  encryptionTag        Bytes
+  immutable            Boolean             @default(true)
+  createdAt            DateTime            @default(now())
+  record               MedicalRecord       @relation(fields: [recordId], references: [id])
+  citations            SourceCitation[]
+  jobs                 IngestionJob[]
+  attestations         RecordAttestation[]
+  aiCitations          AiCitation[]
+  fhirMaps             FhirResourceMap[]
+
+  @@unique([recordId, versionNo])
+}
+
+model RecordAttestation {
+  id               String           @id @default(uuid()) @db.Uuid
+  recordVersionId  String           @db.Uuid
+  issuerProviderId String?          @db.Uuid
+  issuerOrgId      String?          @db.Uuid
+  attestationType  String
+  stellarRecordRef String           @unique @db.Char(64)
+  stellarTxHash    String?
+  status           String           @default("PENDING")
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  recordVersion    RecordVersion    @relation(fields: [recordVersionId], references: [id])
+  issuerProvider   ProviderProfile? @relation(fields: [issuerProviderId], references: [id])
+  issuerOrg        Organization?    @relation(fields: [issuerOrgId], references: [id])
+}
+
+model MedicalEvent {
+  id             String         @id @default(uuid()) @db.Uuid
+  patientId      String         @db.Uuid
+  eventType      String
+  occurredAt     DateTime
+  endAt          DateTime?
+  certainty      String
+  sourceKind     String
+  selfReported   Boolean        @default(false)
+  interpretation Json
+  correction     Json?
+  reviewStatus   String         @default("PENDING_REVIEW")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  patient        PatientProfile @relation(fields: [patientId], references: [id])
+
+  @@index([patientId, occurredAt])
+}
+
+model Condition {
+  id         String         @id @default(uuid()) @db.Uuid
+  patientId  String         @db.Uuid
+  codeSystem String?
+  code       String?
+  display    String
+  onsetAt    DateTime?
+  resolvedAt DateTime?
+  reviewStatus String        @default("PENDING_REVIEW")
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  patient    PatientProfile @relation(fields: [patientId], references: [id])
+}
+
+model MedicationStatement {
+  id             String         @id @default(uuid()) @db.Uuid
+  patientId      String         @db.Uuid
+  medicationName String
+  dose           String?
+  route          String?
+  frequency      String?
+  startAt        DateTime?
+  endAt          DateTime?
+  status         String
+  reviewStatus   String         @default("PENDING_REVIEW")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  patient        PatientProfile @relation(fields: [patientId], references: [id])
+}
+
+model Allergy {
+  id        String         @id @default(uuid()) @db.Uuid
+  patientId String         @db.Uuid
+  substance String
+  reaction  String?
+  severity  String?
+  status    String
+  reviewStatus String         @default("PENDING_REVIEW")
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  patient   PatientProfile @relation(fields: [patientId], references: [id])
+}
+
+model Observation {
+  id           String         @id @default(uuid()) @db.Uuid
+  patientId    String         @db.Uuid
+  name         String
+  valueNumeric Decimal?       @db.Decimal(18, 6)
+  valueText    String?
+  unit         String?
+  refLow       Decimal?       @db.Decimal(18, 6)
+  refHigh      Decimal?       @db.Decimal(18, 6)
+  observedAt   DateTime
+  reviewStatus String         @default("PENDING_REVIEW")
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  patient      PatientProfile @relation(fields: [patientId], references: [id])
+
+  @@index([patientId, name, observedAt])
+}
+
+model Encounter {
+  id             String           @id @default(uuid()) @db.Uuid
+  patientId      String           @db.Uuid
+  providerId     String?          @db.Uuid
+  organizationId String?          @db.Uuid
+  encounterType  String
+  startedAt      DateTime
+  endedAt        DateTime?
+  reviewStatus   String           @default("PENDING_REVIEW")
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  patient        PatientProfile   @relation(fields: [patientId], references: [id])
+  provider       ProviderProfile? @relation(fields: [providerId], references: [id])
+  organization   Organization?    @relation(fields: [organizationId], references: [id])
+}
+
+model Procedure {
+  id          String         @id @default(uuid()) @db.Uuid
+  patientId   String         @db.Uuid
+  name        String
+  performedAt DateTime?
+  reviewStatus String         @default("PENDING_REVIEW")
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  patient     PatientProfile @relation(fields: [patientId], references: [id])
+}
+
+model Immunization {
+  id             String         @id @default(uuid()) @db.Uuid
+  patientId      String         @db.Uuid
+  vaccineName    String
+  administeredAt DateTime?
+  reviewStatus   String         @default("PENDING_REVIEW")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  patient        PatientProfile @relation(fields: [patientId], references: [id])
+}
+
+model SourceCitation {
+  id                String        @id @default(uuid()) @db.Uuid
+  entityType        String
+  entityId          String        @db.Uuid
+  recordVersionId   String        @db.Uuid
+  page              Int?
+  section           String?
+  charStart         Int?
+  charEnd           Int?
+  extractedTextHash String        @db.Char(64)
+  spanTextEncrypted Bytes?
+  createdAt         DateTime      @default(now())
+  recordVersion     RecordVersion @relation(fields: [recordVersionId], references: [id])
+
+  @@index([entityType, entityId])
+}
+
+model ConsentRequest {
+  id                  String          @id @default(uuid()) @db.Uuid
+  patientId           String          @db.Uuid
+  requesterProviderId String          @db.Uuid
+  requestedScopeJson  Json
+  expiresAt           DateTime
+  status              String          @default("PENDING")
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  patient             PatientProfile  @relation(fields: [patientId], references: [id])
+  requester           ProviderProfile @relation(fields: [requesterProviderId], references: [id])
+
+  @@index([patientId, status])
+}
+
+model ConsentGrant {
+  id                String         @id @default(uuid()) @db.Uuid
+  patientId         String         @db.Uuid
+  recipientType     String
+  recipientId       String         @db.Uuid
+  scope             Json
+  scopeManifestHash String         @db.Char(64)
+  startsAt          DateTime
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  stellarRef        String?
+  stellarTxHash     String?
+  status            String         @default("PENDING_CHAIN")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  patient           PatientProfile @relation(fields: [patientId], references: [id])
+
+  @@index([patientId, recipientId, status])
+}
+
+model AccessEvent {
+  id           String         @id @default(uuid()) @db.Uuid
+  patientId    String         @db.Uuid
+  actorUserId  String         @db.Uuid
+  action       String
+  resourceType String
+  resourceId   String?        @db.Uuid
+  purpose      String?
+  requestId    String
+  occurredAt   DateTime       @default(now())
+  createdAt    DateTime       @default(now())
+  patient      PatientProfile @relation(fields: [patientId], references: [id])
+  actor        User           @relation(fields: [actorUserId], references: [id])
+
+  @@index([patientId, occurredAt])
+  @@index([requestId])
+}
+
+model AiConversation {
+  id             String         @id @default(uuid()) @db.Uuid
+  patientId      String         @db.Uuid
+  actorUserId    String         @db.Uuid
+  purpose        String
+  consentGrantId String?        @db.Uuid
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  patient        PatientProfile @relation(fields: [patientId], references: [id])
+  actor          User           @relation(fields: [actorUserId], references: [id])
+  messages       AiMessage[]
+
+  @@index([patientId, createdAt])
+}
+
+model AiMessage {
+  id             String         @id @default(uuid()) @db.Uuid
+  conversationId String         @db.Uuid
+  role           String
+  textRedacted   String?
+  createdAt      DateTime       @default(now())
+  conversation   AiConversation @relation(fields: [conversationId], references: [id])
+  claims         AiClaim[]
+
+  @@index([conversationId, createdAt])
+}
+
+model AiClaim {
+  id            String       @id @default(uuid()) @db.Uuid
+  messageId     String       @db.Uuid
+  claimText     String
+  supportStatus String
+  createdAt     DateTime     @default(now())
+  message       AiMessage    @relation(fields: [messageId], references: [id])
+  citations     AiCitation[]
+}
+
+model AiCitation {
+  id              String        @id @default(uuid()) @db.Uuid
+  claimId         String        @db.Uuid
+  recordVersionId String        @db.Uuid
+  page            Int?
+  spanRef         String
+  relevanceScore  Float
+  createdAt       DateTime      @default(now())
+  claim           AiClaim       @relation(fields: [claimId], references: [id])
+  recordVersion   RecordVersion @relation(fields: [recordVersionId], references: [id])
+}
+
+model IngestionJob {
+  id              String        @id @default(uuid()) @db.Uuid
+  recordVersionId String        @db.Uuid
+  status          String        @default("QUEUED")
+  attempt         Int           @default(0)
+  idempotencyKey  String        @unique
+  correlationId   String
+  errorCode       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  recordVersion   RecordVersion @relation(fields: [recordVersionId], references: [id])
+}
+
+model FhirConnection {
+  id                      String         @id @default(uuid()) @db.Uuid
+  patientId               String         @db.Uuid
+  organizationId          String         @db.Uuid
+  status                  String
+  encryptedCredentialsRef String
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  patient                 PatientProfile @relation(fields: [patientId], references: [id])
+  organization            Organization   @relation(fields: [organizationId], references: [id])
+}
+
+model FhirResourceMap {
+  id               String         @id @default(uuid()) @db.Uuid
+  patientId        String         @db.Uuid
+  internalType     String
+  internalId       String         @db.Uuid
+  recordVersionId  String?        @db.Uuid
+  fhirResourceType String
+  fhirId           String?
+  versionId        String?
+  originalPayload  Json
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  patient          PatientProfile @relation(fields: [patientId], references: [id])
+  recordVersion    RecordVersion? @relation(fields: [recordVersionId], references: [id])
+
+  @@index([patientId, createdAt])
+  @@index([internalType, internalId])
+}
