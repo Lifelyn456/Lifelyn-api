@@ -30,6 +30,7 @@ jobs:
       - run: npm install -g pnpm@10.30.3
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec prisma validate
+      - run: pnpm db:generate
       - run: pnpm db:deploy
       - run: pnpm typecheck
       - run: pnpm lint
