@@ -12,6 +12,8 @@
   <img src="https://img.shields.io/badge/license-unlicensed-lightgrey" alt="Unlicensed" />
 </p>
 
+<p align="center">📖 <a href="https://cjay-1.gitbook.io/lifelyn-docs/">Documentation</a></p>
+
 NestJS/Fastify is the sole authorization and system-of-record boundary for [Lifelyn](https://github.com/Lifelyn456/lifelyn-web). Freighter wallet challenge signing is the only login mechanism — provider verification and passkey MFA add clinical privileges on top, they are never an alternative login. Every protected route fails closed (returns an explicit error) rather than falling back to fixture or synthetic data when PostgreSQL, Redis, private object storage, the malware scanner, the AI service, or the Stellar signer is unavailable.
 
 ## Table of contents
