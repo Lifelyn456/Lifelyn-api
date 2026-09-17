@@ -30,12 +30,18 @@ const app = await NestFactory.create<NestFastifyApplication>(
   }),
 );
 await app.register(helmet);
-await app.register(rateLimit, { max: 100, timeWindow: "1 minute" });
-app.useGlobalFilters(new SafeExceptionFilter());
+// CORS must be registered before rate-limit: Fastify hooks run in registration
+// order, and rate-limit's onRequest hook can short-circuit a request with a 429
+// before a later-registered CORS hook ever adds Access-Control-Allow-Origin. A
+// rate-limited response missing that header is opaque to the browser, which
+// reports it to calling code as a generic "Failed to fetch" network error
+// rather than a readable 429 — indistinguishable from a real outage.
 app.enableCors({
   origin: process.env.WEB_ORIGIN ?? "http://127.0.0.1:3000",
   credentials: false,
 });
+await app.register(rateLimit, { max: 100, timeWindow: "1 minute" });
+app.useGlobalFilters(new SafeExceptionFilter());
 const document = SwaggerModule.createDocument(
   app,
   new DocumentBuilder()
