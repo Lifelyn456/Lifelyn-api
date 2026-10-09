@@ -1,8 +1,11 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { encryptOriginal, decryptOriginal, type KeyWrapper } from "../../common/crypto.js";
+import { MalwareScanner } from "./malware-scanner.js";
+
+export { MalwareScanner };
 
 type StoredEnvelope = { ciphertext: Buffer; iv: Buffer; tag: Buffer; wrappedKey: Buffer; keyRef: string; sha256: string };
 
@@ -50,17 +53,6 @@ export class EnvironmentKeyWrapper implements KeyWrapper {
     });
     if (!response.ok) throw new ServiceUnavailableException("External KMS operation failed.");
     return response.json() as Promise<{ wrappedKey?: string; plaintextKey?: string; keyRef?: string }>;
-  }
-}
-
-@Injectable()
-export class MalwareScanner {
-  async assertClean(content: Buffer, mimeType: string) {
-    const endpoint = process.env.MALWARE_SCANNER_URL;
-    if (!endpoint) throw new ServiceUnavailableException("Malware scanning is not configured.");
-    const response = await fetch(endpoint, { method: "POST", headers: { "content-type": mimeType, "x-content-sha256": createHash("sha256").update(content).digest("hex") }, body: new Uint8Array(content), signal: AbortSignal.timeout(30_000) });
-    if (response.status === 422) throw new BadRequestException("The uploaded file did not pass malware scanning.");
-    if (!response.ok) throw new ServiceUnavailableException("Malware scanning is unavailable.");
   }
 }
 
