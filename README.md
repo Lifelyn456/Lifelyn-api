@@ -9,7 +9,7 @@
   <a href="https://github.com/Lifelyn456/Lifelyn-api/actions/workflows/ci.yml"><img src="https://github.com/Lifelyn456/Lifelyn-api/actions/workflows/ci.yml/badge.svg" alt="API checks" /></a>
   <img src="https://img.shields.io/badge/stack-NestJS%20%2F%20Fastify-E0234E" alt="NestJS/Fastify" />
   <img src="https://img.shields.io/badge/db-PostgreSQL%20%2B%20Prisma-336791" alt="PostgreSQL + Prisma" />
-  <img src="https://img.shields.io/badge/license-unlicensed-lightgrey" alt="Unlicensed" />
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Lifelyn456/Lifelyn-api?color=blue" alt="License: MIT" /></a>
 </p>
 
 <p align="center">📖 <a href="https://cjay-1.gitbook.io/lifelyn-docs/">Documentation</a></p>
@@ -65,6 +65,7 @@ docker compose -f docker-compose.dev.yml up -d --wait   # Postgres/pgvector, Red
 pnpm db:generate && pnpm db:deploy
 pnpm dev            # HTTP service
 pnpm dev:worker      # background workers, separate terminal
+pnpm dev:signer      # Stellar signing service (needs the SIGNER_* and contract variables), separate terminal
 ```
 
 ## Environment variables
@@ -73,7 +74,8 @@ See [`.env.example`](.env.example) for the full list. Notable constraints:
 
 - `AI_SERVICE_JWT_SECRET` must exactly match the AI service's `SERVICE_JWT_SECRET`.
 - Production must set `KMS_PROVIDER=external` and put signing/encryption material in a real secret manager — local development uses a built-in AES-GCM wrapper instead.
-- `STELLAR_SIGNER_SERVICE_URL` points at a private transaction-building/signing service. This API never accepts or stores a raw Stellar seed.
+- Malware scanning is mandatory and fails closed. Set `MALWARE_SCANNER_PROVIDER=clamd` with `CLAMD_HOST` to scan with a ClamAV daemon (`docker compose -f docker-compose.dev.yml --profile clamav up -d clamav`), or leave it unset and point `MALWARE_SCANNER_URL` at an HTTPS scanning service. Any scanner error, timeout or unreachable daemon rejects the upload. Configure clamd `StreamMaxLength` to at least 32M.
+- `STELLAR_SIGNER_SERVICE_URL` points at the private signing service in `src/signer/` (`pnpm start:signer`). This API never accepts or stores a raw Stellar seed. See [`docs/SIGNER.md`](docs/SIGNER.md) for its security model, configuration and Testnet verification.
 
 ## Testing
 

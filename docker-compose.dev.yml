@@ -47,7 +47,19 @@ services:
         mc alias set local http://minio:9000 lifelyn-local local-development-only
         mc mb --ignore-existing local/lifelyn-records
         mc anonymous set none local/lifelyn-records
+  clamav:
+    # Optional: only needed with MALWARE_SCANNER_PROVIDER=clamd. Signature download makes the first start slow.
+    profiles: ['clamav']
+    image: clamav/clamav:1.4
+    ports: ['127.0.0.1:3310:3310']
+    volumes: ['clamav-data:/var/lib/clamav']
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/clamdcheck.sh']
+      interval: 30s
+      retries: 10
+      start_period: 180s
 volumes:
   postgres-data:
   redis-data:
   minio-data:
+  clamav-data:
